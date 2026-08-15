@@ -25,7 +25,20 @@ from pathlib import Path
 import polars as pl
 from dotenv import load_dotenv
 
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Numeric, SmallInteger, BigInteger, Date, DateTime, func
+from sqlalchemy import (
+    create_engine,
+    MetaData,
+    Table,
+    Column,
+    Integer,
+    String,
+    Numeric,
+    SmallInteger,
+    BigInteger,
+    Date,
+    DateTime,
+    func,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql import select
 
@@ -79,43 +92,51 @@ SENSOR_BOUNDS: dict[int, tuple[str, float, float]] = {
 # ---------------------------------------------------------------------------
 metadata = MetaData()
 
-dim_equipment = Table('dim_equipment', metadata,
-    Column('unit_id', Integer, primary_key=True),
-    Column('dataset_source', String(10)),
-    Column('max_cycles_observed', Integer),
-    Column('failure_cycle', Integer),
-    Column('first_seen_at', DateTime(timezone=True)),
-    Column('last_updated_at', DateTime(timezone=True))
+dim_equipment = Table(
+    "dim_equipment",
+    metadata,
+    Column("unit_id", Integer, primary_key=True),
+    Column("dataset_source", String(10)),
+    Column("max_cycles_observed", Integer),
+    Column("failure_cycle", Integer),
+    Column("first_seen_at", DateTime(timezone=True)),
+    Column("last_updated_at", DateTime(timezone=True)),
 )
 
-dim_sensor = Table('dim_sensor', metadata,
-    Column('sensor_id', SmallInteger, primary_key=True),
-    Column('sensor_name', String(30), unique=True),
-    Column('expected_min', Numeric(12,4)),
-    Column('expected_max', Numeric(12,4))
+dim_sensor = Table(
+    "dim_sensor",
+    metadata,
+    Column("sensor_id", SmallInteger, primary_key=True),
+    Column("sensor_name", String(30), unique=True),
+    Column("expected_min", Numeric(12, 4)),
+    Column("expected_max", Numeric(12, 4)),
 )
 
-dim_batch = Table('dim_batch', metadata,
-    Column('batch_id', BigInteger, primary_key=True),
-    Column('batch_date', Date),
-    Column('ingested_at', DateTime(timezone=True)),
-    Column('source_file', String(60)),
-    Column('dataset', String(10)),
-    Column('row_count', Integer),
-    Column('status', String(10)),
-    Column('loaded_at', DateTime(timezone=True))
+dim_batch = Table(
+    "dim_batch",
+    metadata,
+    Column("batch_id", BigInteger, primary_key=True),
+    Column("batch_date", Date),
+    Column("ingested_at", DateTime(timezone=True)),
+    Column("source_file", String(60)),
+    Column("dataset", String(10)),
+    Column("row_count", Integer),
+    Column("status", String(10)),
+    Column("loaded_at", DateTime(timezone=True)),
 )
 
-fact_sensor_readings = Table('fact_sensor_readings', metadata,
-    Column('reading_id', BigInteger, primary_key=True),
-    Column('unit_id', Integer),
-    Column('sensor_id', SmallInteger),
-    Column('batch_id', BigInteger),
-    Column('cycle', Integer),
-    Column('reading_value', Numeric(14,6)),
-    Column('rolling_avg_7', Numeric(14,6)),
-    Column('rate_of_change', Numeric(14,6)),
-    Column('loaded_at', DateTime(timezone=True))
+fact_sensor_readings = Table(
+    "fact_sensor_readings",
+    metadata,
+    Column("reading_id", BigInteger, primary_key=True),
+    Column("unit_id", Integer),
+    Column("sensor_id", SmallInteger),
+    Column("batch_id", BigInteger),
+    Column("cycle", Integer),
+    Column("reading_value", Numeric(14, 6)),
+    Column("rolling_avg_7", Numeric(14, 6)),
+    Column("rate_of_change", Numeric(14, 6)),
+    Column("loaded_at", DateTime(timezone=True)),
 )
 
 
@@ -124,41 +145,38 @@ def get_engine():
     if not db_url:
         log.error("DATABASE_URL environment variable is not set.")
         sys.exit(1)
-    
+
     # Optional performance tuning for SQLAlchemy with PostgreSQL
-    return create_engine(
-        db_url, 
-        pool_size=10, 
-        max_overflow=20
-    )
+    return create_engine(db_url, pool_size=10, max_overflow=20)
 
 
 # ---------------------------------------------------------------------------
 # Loader Functions
 # ---------------------------------------------------------------------------
 
+
 def ensure_dim_sensor(conn):
     """Makes sure our sensor reference table is populated. Safe to run repeatedly."""
     log.info("Ensuring dim_sensor is populated...")
-    
+
     sensor_records = [
         {
-            "sensor_id": s_id, 
-            "sensor_name": name, 
-            "expected_min": min_v, 
-            "expected_max": max_v
+            "sensor_id": s_id,
+            "sensor_name": name,
+            "expected_min": min_v,
+            "expected_max": max_v,
         }
         for s_id, (name, min_v, max_v) in SENSOR_BOUNDS.items()
     ]
 
     stmt = insert(dim_sensor).values(sensor_records)
     upsert_stmt = stmt.on_conflict_do_update(
-        index_elements=['sensor_id'],
+        index_elements=["sensor_id"],
         set_={
-            'sensor_name': stmt.excluded.sensor_name,
-            'expected_min': stmt.excluded.expected_min,
-            'expected_max': stmt.excluded.expected_max
-        }
+            "sensor_name": stmt.excluded.sensor_name,
+            "expected_min": stmt.excluded.expected_min,
+            "expected_max": stmt.excluded.expected_max,
+        },
     )
     conn.execute(upsert_stmt)
     log.info("  dim_sensor OK.")
@@ -166,30 +184,32 @@ def ensure_dim_sensor(conn):
 
 def get_loaded_batches(conn) -> set[str]:
     """Pulls a list of files we've already loaded so we don't duplicate work."""
-    stmt = select(dim_batch.c.source_file).where(dim_batch.c.status == 'loaded')
+    stmt = select(dim_batch.c.source_file).where(dim_batch.c.status == "loaded")
     result = conn.execute(stmt).fetchall()
     return {row[0] for row in result}
 
 
-def load_gold_file(conn, gold_path: Path, dataset: str, force: bool, loaded_files: set[str]) -> tuple[bool, int]:
+def load_gold_file(
+    conn, gold_path: Path, dataset: str, force: bool, loaded_files: set[str]
+) -> tuple[bool, int]:
     """
     Pushes a single Gold Parquet file into Postgres.
-    We do the equipment, batch logging, and fact table inserts all in one transaction 
+    We do the equipment, batch logging, and fact table inserts all in one transaction
     so if something breaks, we don't get partial data.
     """
     source_file = gold_path.name
-    
+
     if source_file in loaded_files and not force:
         log.debug("  [SKIP] %s is already loaded.", source_file)
         return False, 0
-    
+
     # ── Read Parquet ──────────────────────────────────────────────────────────
     try:
         df = pl.read_parquet(gold_path)
     except Exception as exc:
         log.error("  [ERROR] Cannot read %s: %s", gold_path.name, exc)
         return False, 0
-    
+
     if len(df) == 0:
         log.warning("  [SKIP] %s is empty.", source_file)
         return False, 0
@@ -201,42 +221,59 @@ def load_gold_file(conn, gold_path: Path, dataset: str, force: bool, loaded_file
 
     # Convert dataframe to a list of dicts for SQLAlchemy bulk insert
     # Keep only the columns present in the fact table
-    records = df.select([
-        "unit_id", "sensor_id", "cycle", "reading_value", 
-        "rolling_avg_7", "rate_of_change"
-    ]).to_dicts()
+    records = df.select(
+        [
+            "unit_id",
+            "sensor_id",
+            "cycle",
+            "reading_value",
+            "rolling_avg_7",
+            "rate_of_change",
+        ]
+    ).to_dicts()
 
     # We do all updates in one transaction (the connection passed in manages it)
     log.info("Loading %s (Unit %d, %d rows)...", source_file, unit_id, row_count)
 
     # 1. Upsert dim_equipment
-    eq_stmt = insert(dim_equipment).values([{
-        "unit_id": unit_id,
-        "dataset_source": dataset,
-        "max_cycles_observed": max_cycle,
-        "first_seen_at": now_utc,
-        "last_updated_at": now_utc
-    }])
+    eq_stmt = insert(dim_equipment).values(
+        [
+            {
+                "unit_id": unit_id,
+                "dataset_source": dataset,
+                "max_cycles_observed": max_cycle,
+                "first_seen_at": now_utc,
+                "last_updated_at": now_utc,
+            }
+        ]
+    )
     eq_upsert = eq_stmt.on_conflict_do_update(
-        index_elements=['unit_id'],
+        index_elements=["unit_id"],
         set_={
-            'max_cycles_observed': func.greatest(dim_equipment.c.max_cycles_observed, eq_stmt.excluded.max_cycles_observed),
-            'last_updated_at': now_utc
-        }
+            "max_cycles_observed": func.greatest(
+                dim_equipment.c.max_cycles_observed,
+                eq_stmt.excluded.max_cycles_observed,
+            ),
+            "last_updated_at": now_utc,
+        },
     )
     conn.execute(eq_upsert)
 
     # 2. Insert into dim_batch
     # Notice we insert as 'loaded' immediately because it's part of the same transaction
-    batch_stmt = insert(dim_batch).values(
-        batch_date=now_utc.date(),
-        ingested_at=now_utc,
-        source_file=source_file,
-        dataset=dataset,
-        row_count=row_count,
-        status='loaded',
-        loaded_at=now_utc
-    ).returning(dim_batch.c.batch_id)
+    batch_stmt = (
+        insert(dim_batch)
+        .values(
+            batch_date=now_utc.date(),
+            ingested_at=now_utc,
+            source_file=source_file,
+            dataset=dataset,
+            row_count=row_count,
+            status="loaded",
+            loaded_at=now_utc,
+        )
+        .returning(dim_batch.c.batch_id)
+    )
     batch_id = conn.execute(batch_stmt).scalar()
 
     # 3. Add batch_id to records and loaded_at
@@ -248,24 +285,24 @@ def load_gold_file(conn, gold_path: Path, dataset: str, force: bool, loaded_file
     # using ON CONFLICT (unit_id, cycle, sensor_id) DO UPDATE
     fact_stmt = insert(fact_sensor_readings).values(records)
     fact_upsert = fact_stmt.on_conflict_do_update(
-        index_elements=['unit_id', 'cycle', 'sensor_id'],
+        index_elements=["unit_id", "cycle", "sensor_id"],
         set_={
-            'batch_id': fact_stmt.excluded.batch_id,
-            'reading_value': fact_stmt.excluded.reading_value,
-            'rolling_avg_7': fact_stmt.excluded.rolling_avg_7,
-            'rate_of_change': fact_stmt.excluded.rate_of_change,
-            'loaded_at': fact_stmt.excluded.loaded_at
-        }
+            "batch_id": fact_stmt.excluded.batch_id,
+            "reading_value": fact_stmt.excluded.reading_value,
+            "rolling_avg_7": fact_stmt.excluded.rolling_avg_7,
+            "rate_of_change": fact_stmt.excluded.rate_of_change,
+            "loaded_at": fact_stmt.excluded.loaded_at,
+        },
     )
-    
+
     conn.execute(fact_upsert)
-    
+
     return True, row_count
 
 
 def run_loader(agg_dir: Path, datasets: list[str], force: bool) -> None:
     engine = get_engine()
-    
+
     total_files_loaded = 0
     total_rows_loaded = 0
 
@@ -287,22 +324,28 @@ def run_loader(agg_dir: Path, datasets: list[str], force: bool) -> None:
         dataset_dir = agg_dir / f"dataset={dataset}"
         if not dataset_dir.exists():
             continue
-            
+
         for unit_dir in sorted(dataset_dir.iterdir()):
             if not unit_dir.is_dir() or not unit_dir.name.startswith("unit="):
                 continue
-                
+
             for gold_file in sorted(unit_dir.glob("gold_*.parquet")):
-                
+
                 # Use engine.begin() to start an implicit transaction per file
                 try:
                     with engine.begin() as conn:
-                        loaded, rows = load_gold_file(conn, gold_file, dataset, force, loaded_files)
+                        loaded, rows = load_gold_file(
+                            conn, gold_file, dataset, force, loaded_files
+                        )
                         if loaded:
                             total_files_loaded += 1
                             total_rows_loaded += rows
                 except Exception as exc:
-                    log.error("  [ERROR] Transaction failed for %s. Rolled back. %s", gold_file.name, exc)
+                    log.error(
+                        "  [ERROR] Transaction failed for %s. Rolled back. %s",
+                        gold_file.name,
+                        exc,
+                    )
 
     log.info("")
     log.info("=" * 60)
@@ -316,6 +359,7 @@ def run_loader(agg_dir: Path, datasets: list[str], force: bool) -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -351,8 +395,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     import io as _io
+
     if hasattr(sys.stdout, "buffer"):
-        sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stdout = _io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
 
     args = parse_args()
     if args.verbose:
@@ -360,17 +407,10 @@ def main() -> None:
 
     datasets = args.dataset or ALL_DATASETS
 
-    log.info(
-        "Starting load  |  datasets=%s  force=%s",
-        datasets, args.force
-    )
+    log.info("Starting load  |  datasets=%s  force=%s", datasets, args.force)
 
     t0 = time.perf_counter()
-    run_loader(
-        agg_dir=args.agg_dir,
-        datasets=datasets,
-        force=args.force
-    )
+    run_loader(agg_dir=args.agg_dir, datasets=datasets, force=args.force)
     elapsed = time.perf_counter() - t0
 
     log.info("Load complete in %.1fs", elapsed)
