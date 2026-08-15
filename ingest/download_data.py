@@ -39,39 +39,61 @@ FALLBACK_ZIP_URL = (
 
 # Expected files inside the zip (NASA packages all files flat or in CMAPSSData/)
 TRAIN_FILES = [f"train_FD00{i}.txt" for i in range(1, 5)]
-RUL_FILES   = [f"RUL_FD00{i}.txt"   for i in range(1, 5)]
+RUL_FILES = [f"RUL_FD00{i}.txt" for i in range(1, 5)]
 TARGET_FILES = TRAIN_FILES + RUL_FILES
 
 # Canonical column names for the 26 usable columns in train/test files
 SENSOR_NAMES = [
-    "unit_id", "cycle",
-    "op_setting_1", "op_setting_2", "op_setting_3",
-    "sensor_1",  "sensor_2",  "sensor_3",  "sensor_4",  "sensor_5",
-    "sensor_6",  "sensor_7",  "sensor_8",  "sensor_9",  "sensor_10",
-    "sensor_11", "sensor_12", "sensor_13", "sensor_14", "sensor_15",
-    "sensor_16", "sensor_17", "sensor_18", "sensor_19", "sensor_20",
+    "unit_id",
+    "cycle",
+    "op_setting_1",
+    "op_setting_2",
+    "op_setting_3",
+    "sensor_1",
+    "sensor_2",
+    "sensor_3",
+    "sensor_4",
+    "sensor_5",
+    "sensor_6",
+    "sensor_7",
+    "sensor_8",
+    "sensor_9",
+    "sensor_10",
+    "sensor_11",
+    "sensor_12",
+    "sensor_13",
+    "sensor_14",
+    "sensor_15",
+    "sensor_16",
+    "sensor_17",
+    "sensor_18",
+    "sensor_19",
+    "sensor_20",
     "sensor_21",
 ]
 
 # Root of the project — resolve relative to this file regardless of CWD
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DEST  = PROJECT_ROOT / "data" / "source"
+DEFAULT_DEST = PROJECT_ROOT / "data" / "source"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _progress_bar(desc: str, total: int, width: int = 40) -> callable:
     """Minimal in-terminal progress bar that works without tqdm."""
+
     def update(downloaded: int) -> None:
-        pct   = min(downloaded / total, 1.0) if total else 0
+        pct = min(downloaded / total, 1.0) if total else 0
         filled = int(width * pct)
-        bar   = "█" * filled + "░" * (width - filled)
+        bar = "█" * filled + "░" * (width - filled)
         mb_dl = downloaded / 1_048_576
         mb_tot = total / 1_048_576
         sys.stdout.write(f"\r  {desc}: [{bar}] {mb_dl:.1f}/{mb_tot:.1f} MB")
         sys.stdout.flush()
         if downloaded >= total:
             sys.stdout.write("\n")
+
     return update
 
 
@@ -111,7 +133,9 @@ def _extract_targets(zip_bytes: bytes, dest: Path) -> list[Path]:
         missing = set(TARGET_FILES) - set(name_map.keys())
         if missing:
             print(f"\n  ⚠  Files not found inside zip: {sorted(missing)}")
-            print("     The zip structure may have changed. Check the NASA portal manually.")
+            print(
+                "     The zip structure may have changed. Check the NASA portal manually."
+            )
 
         for basename, zip_path in name_map.items():
             out_path = dest / basename
@@ -128,6 +152,7 @@ def _extract_targets(zip_bytes: bytes, dest: Path) -> list[Path]:
 
 
 # ── Summary printer ───────────────────────────────────────────────────────────
+
 
 def _summarise_file(path: Path) -> None:
     """
@@ -146,8 +171,10 @@ def _summarise_file(path: Path) -> None:
         print(f"  Shape   : {df.shape[0]:,} rows × {df.shape[1]} column")
         print(f"  Columns : {list(df.columns)}")
         print(f"  Dtypes  : {dict(df.dtypes)}")
-        print(f"  RUL range: min={df['rul'].min():.0f}  max={df['rul'].max():.0f}  "
-              f"mean={df['rul'].mean():.1f}")
+        print(
+            f"  RUL range: min={df['rul'].min():.0f}  max={df['rul'].max():.0f}  "
+            f"mean={df['rul'].mean():.1f}"
+        )
     else:
         # Train/test files: 26+ space-delimited columns, no header
         raw = pd.read_csv(path, sep=r"\s+", header=None)
@@ -158,7 +185,9 @@ def _summarise_file(path: Path) -> None:
         usable = raw.iloc[:, :26].copy()
         usable.columns = SENSOR_NAMES
 
-        print(f"  Raw cols  : {n_cols}  (26 usable, {n_cols - 26} trailing zero-col(s) dropped)")
+        print(
+            f"  Raw cols  : {n_cols}  (26 usable, {n_cols - 26} trailing zero-col(s) dropped)"
+        )
         print(f"  Shape     : {usable.shape[0]:,} rows × {usable.shape[1]} columns")
         print(f"\n  Column layout:")
         print(f"    unit_id         — engine unit number")
@@ -168,8 +197,10 @@ def _summarise_file(path: Path) -> None:
         print(f"\n  Units observed: {sorted(usable['unit_id'].unique())}")
         print(f"  Cycles per unit:")
         cycle_stats = usable.groupby("unit_id")["cycle"].max()
-        print(f"    min={cycle_stats.min()}  max={cycle_stats.max()}  "
-              f"mean={cycle_stats.mean():.1f}")
+        print(
+            f"    min={cycle_stats.min()}  max={cycle_stats.max()}  "
+            f"mean={cycle_stats.mean():.1f}"
+        )
 
         print(f"\n  Sensor value ranges (min / max):")
         sensor_cols = [c for c in SENSOR_NAMES if c.startswith("sensor_")]
@@ -178,15 +209,18 @@ def _summarise_file(path: Path) -> None:
             .agg(["min", "max"])
             .T.rename(columns={"min": "min", "max": "max"})
         )
-        print(range_df.to_string(
-            float_format=lambda x: f"{x:>10.4f}",
-            col_space=12,
-        ))
+        print(
+            range_df.to_string(
+                float_format=lambda x: f"{x:>10.4f}",
+                col_space=12,
+            )
+        )
 
     print(f"\n  File size: {path.stat().st_size / 1_048_576:.2f} MB")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def download(dest: Path | None = None, datasets: list[str] | None = None) -> None:
     """
@@ -205,15 +239,17 @@ def download(dest: Path | None = None, datasets: list[str] | None = None) -> Non
     print("=" * 60)
 
     # ── Check which files are already present ─────────────────────────────
-    already_have  = [f for f in TARGET_FILES if (dest / f).exists()]
+    already_have = [f for f in TARGET_FILES if (dest / f).exists()]
     need_download = [f for f in TARGET_FILES if f not in already_have]
 
     if not need_download:
         print(f"\n  All {len(TARGET_FILES)} target files already present in:")
         print(f"  {dest}\n  Skipping download.\n")
     else:
-        print(f"\n  {len(already_have)} file(s) already cached, "
-              f"{len(need_download)} to download.\n")
+        print(
+            f"\n  {len(already_have)} file(s) already cached, "
+            f"{len(need_download)} to download.\n"
+        )
 
         # ── Attempt primary URL, then fallback ────────────────────────────
         zip_bytes: bytes | None = None
@@ -244,7 +280,8 @@ def download(dest: Path | None = None, datasets: list[str] | None = None) -> Non
     filter_tags = {f"FD00{d[-1]}" for d in datasets} if datasets else None
 
     files_to_summarise = sorted(
-        p for f in TARGET_FILES
+        p
+        for f in TARGET_FILES
         if (filter_tags is None or any(tag in f for tag in filter_tags))
         and (p := dest / f).exists()
     )
@@ -269,8 +306,11 @@ def main() -> None:
     # Windows terminals sometimes crash on UTF-8 prints if cp1252 is the default.
     # This forces UTF-8 output to avoid that mess.
     import io
+
     if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
 
     parser = argparse.ArgumentParser(
         description="Download NASA C-MAPSS dataset and print per-file summaries.",
@@ -289,7 +329,7 @@ def main() -> None:
         default=None,
         metavar="FDxxx",
         help="Restrict the post-download summary to specific subsets "
-             "(e.g. --dataset FD001 FD002). All four are always downloaded.",
+        "(e.g. --dataset FD001 FD002). All four are always downloaded.",
     )
     args = parser.parse_args()
     download(dest=args.dest, datasets=args.dataset)

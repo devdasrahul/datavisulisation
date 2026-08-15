@@ -1,4 +1,5 @@
 """Quick smoke test for ingest_batches.py — run with: python ingest/test_ingest_smoke.py"""
+
 import random
 import tempfile
 from datetime import datetime, timezone
@@ -19,12 +20,13 @@ from ingest.ingest_batches import (
 rows = []
 for unit in [1, 2, 3]:
     for cycle in range(1, 56):
-        row = [unit, cycle, 0.0, 0.0, 100.0] + [float(random.randint(100, 999)) for _ in range(21)]
+        row = [unit, cycle, 0.0, 0.0, 100.0] + [
+            float(random.randint(100, 999)) for _ in range(21)
+        ]
         rows.append(row)
 
 schema = {
-    c: (pl.Int32 if c in ("unit_id", "cycle") else pl.Float64)
-    for c in RAW_COLUMNS
+    c: (pl.Int32 if c in ("unit_id", "cycle") else pl.Float64) for c in RAW_COLUMNS
 }
 df = pl.DataFrame(rows, schema=schema, orient="row")
 
@@ -50,8 +52,13 @@ with tempfile.TemporaryDirectory() as tmpdir:
     dest = Path(tmpdir)
     for bi, bdf in batches:
         p = write_parquet(
-            bdf, dest, "FD001", 1, bi,
-            datetime.now(tz=timezone.utc), "train_FD001.txt",
+            bdf,
+            dest,
+            "FD001",
+            1,
+            bi,
+            datetime.now(tz=timezone.utc),
+            "train_FD001.txt",
             dry_run=True,
         )
         print(f"  [dry-run] Would write: {p.name}")
@@ -64,15 +71,22 @@ with tempfile.TemporaryDirectory() as tmpdir:
     written = []
     for bi, bdf in batches:
         p = write_parquet(
-            bdf, dest, "FD001", 1, bi,
-            datetime.now(tz=timezone.utc), "train_FD001.txt",
+            bdf,
+            dest,
+            "FD001",
+            1,
+            bi,
+            datetime.now(tz=timezone.utc),
+            "train_FD001.txt",
             dry_run=False,
         )
         written.append(p)
-    
+
     parquet_files = list(dest.rglob("*.parquet"))
-    assert len(parquet_files) == 3, f"Expected 3 Parquet files, got {len(parquet_files)}"
-    
+    assert (
+        len(parquet_files) == 3
+    ), f"Expected 3 Parquet files, got {len(parquet_files)}"
+
     # Read one back and verify columns + lineage metadata
     sample = pl.read_parquet(parquet_files[0])
     assert "unit_id" in sample.columns
