@@ -57,12 +57,14 @@ def run_checks() -> int:
     """Runs the full DQ suite, logs to Postgres, and returns how many checks failed."""
     engine = get_engine()
     run_started_at = datetime.now(timezone.utc)
-    
+
     # Get the most recent batch date for logging purposes
     with engine.connect() as conn:
-        batch_date = conn.execute(text("SELECT MAX(batch_date) FROM dim_batch WHERE status = 'loaded'")).scalar()
+        batch_date = conn.execute(
+            text("SELECT MAX(batch_date) FROM dim_batch WHERE status = 'loaded'")
+        ).scalar()
         if not batch_date:
-            batch_date = run_started_at.date() # Fallback
+            batch_date = run_started_at.date()  # Fallback
 
     failures = 0
     results = []
@@ -82,18 +84,21 @@ def run_checks() -> int:
         hours_since = conn.execute(text(freshness_sql)).scalar()
         if hours_since is None:
             hours_since = 999.0  # No batches loaded yet
-            
+
         threshold = 30.0
         passed = float(hours_since) <= threshold
-        if not passed: failures += 1
-        
-        results.append({
-            "check_name": "freshness_sla",
-            "metric_value": float(hours_since),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"{hours_since:.2f} hours since last successful batch"
-        })
+        if not passed:
+            failures += 1
+
+        results.append(
+            {
+                "check_name": "freshness_sla",
+                "metric_value": float(hours_since),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"{hours_since:.2f} hours since last successful batch",
+            }
+        )
 
         # ── 2. Cycle Gap Check ────────────────────────────────────────────────
         # No missing cycles per unit. max(cycle) == count(distinct cycle)
@@ -108,16 +113,19 @@ def run_checks() -> int:
         """
         units_with_gaps = conn.execute(text(gap_sql)).scalar() or 0
         threshold = 0.0
-        passed = (units_with_gaps == 0)
-        if not passed: failures += 1
+        passed = units_with_gaps == 0
+        if not passed:
+            failures += 1
 
-        results.append({
-            "check_name": "cycle_gap_check",
-            "metric_value": float(units_with_gaps),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"{units_with_gaps} unit(s) have missing intermediate cycles"
-        })
+        results.append(
+            {
+                "check_name": "cycle_gap_check",
+                "metric_value": float(units_with_gaps),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"{units_with_gaps} unit(s) have missing intermediate cycles",
+            }
+        )
 
         # ── 3. Null Rate Check ────────────────────────────────────────────────
         # Null rate on raw reading_value below 1%
@@ -128,15 +136,18 @@ def run_checks() -> int:
         null_rate = conn.execute(text(null_sql)).scalar() or 0.0
         threshold = 1.0
         passed = float(null_rate) <= threshold
-        if not passed: failures += 1
+        if not passed:
+            failures += 1
 
-        results.append({
-            "check_name": "null_rate_per_column",
-            "metric_value": float(null_rate),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"Reading value null rate is {null_rate:.4f}%"
-        })
+        results.append(
+            {
+                "check_name": "null_rate_per_column",
+                "metric_value": float(null_rate),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"Reading value null rate is {null_rate:.4f}%",
+            }
+        )
 
         # ── 4. Out-of-Range Check ─────────────────────────────────────────────
         # % of sensor readings outside expected_min/max
@@ -149,15 +160,18 @@ def run_checks() -> int:
         oor_rate = conn.execute(text(oor_sql)).scalar() or 0.0
         threshold = 100.0  # Just for tracking
         passed = float(oor_rate) <= threshold
-        if not passed: failures += 1
+        if not passed:
+            failures += 1
 
-        results.append({
-            "check_name": "out_of_range_rate",
-            "metric_value": float(oor_rate),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"{oor_rate:.2f}% of readings outside dim_sensor bounds"
-        })
+        results.append(
+            {
+                "check_name": "out_of_range_rate",
+                "metric_value": float(oor_rate),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"{oor_rate:.2f}% of readings outside dim_sensor bounds",
+            }
+        )
 
         # ── 5. Batch Size Check ───────────────────────────────────────────────
         # Most recent batch should have > 0 rows
@@ -171,18 +185,21 @@ def run_checks() -> int:
         latest_batch_size = conn.execute(text(size_sql)).scalar()
         if latest_batch_size is None:
             latest_batch_size = 0
-            
-        threshold = 1.0 # Minimum 1 row
-        passed = latest_batch_size >= threshold
-        if not passed: failures += 1
 
-        results.append({
-            "check_name": "batch_row_count",
-            "metric_value": float(latest_batch_size),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"Latest loaded batch had {latest_batch_size} rows"
-        })
+        threshold = 1.0  # Minimum 1 row
+        passed = latest_batch_size >= threshold
+        if not passed:
+            failures += 1
+
+        results.append(
+            {
+                "check_name": "batch_row_count",
+                "metric_value": float(latest_batch_size),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"Latest loaded batch had {latest_batch_size} rows",
+            }
+        )
 
         # ── 6. Referential Integrity ──────────────────────────────────────────
         # Every fact row has a valid unit_id, sensor_id, batch_id
@@ -196,50 +213,60 @@ def run_checks() -> int:
         """
         orphans = conn.execute(text(ri_sql)).scalar() or 0
         threshold = 0.0
-        passed = (orphans == 0)
-        if not passed: failures += 1
+        passed = orphans == 0
+        if not passed:
+            failures += 1
 
-        results.append({
-            "check_name": "referential_integrity",
-            "metric_value": float(orphans),
-            "threshold": threshold,
-            "passed": passed,
-            "notes": f"Found {orphans} orphaned fact rows"
-        })
+        results.append(
+            {
+                "check_name": "referential_integrity",
+                "metric_value": float(orphans),
+                "threshold": threshold,
+                "passed": passed,
+                "notes": f"Found {orphans} orphaned fact rows",
+            }
+        )
 
         # ── Log Results to DB ─────────────────────────────────────────────────
         run_finished_at = datetime.now(timezone.utc)
-        
-        insert_sql = text("""
+
+        insert_sql = text(
+            """
             INSERT INTO pipeline_run_log 
                 (batch_date, run_started_at, run_finished_at, check_name, metric_value, threshold, passed, notes)
             VALUES 
                 (:batch_date, :run_started_at, :run_finished_at, :check_name, :metric_value, :threshold, :passed, :notes)
-        """)
-        
+        """
+        )
+
         for res in results:
             # Print console summary
             status_str = "PASS" if res["passed"] else "FAIL"
-            log.info(f"[{status_str}] {res['check_name']:<25} | Metric: {res['metric_value']:<8.2f} | Threshold: {res['threshold']:<8.2f} | {res['notes']}")
-            
+            log.info(
+                f"[{status_str}] {res['check_name']:<25} | Metric: {res['metric_value']:<8.2f} | Threshold: {res['threshold']:<8.2f} | {res['notes']}"
+            )
+
             # Write to DB
-            conn.execute(insert_sql, {
-                "batch_date": batch_date,
-                "run_started_at": run_started_at,
-                "run_finished_at": run_finished_at,
-                "check_name": res["check_name"],
-                "metric_value": res["metric_value"],
-                "threshold": res["threshold"],
-                "passed": res["passed"],
-                "notes": res["notes"]
-            })
+            conn.execute(
+                insert_sql,
+                {
+                    "batch_date": batch_date,
+                    "run_started_at": run_started_at,
+                    "run_finished_at": run_finished_at,
+                    "check_name": res["check_name"],
+                    "metric_value": res["metric_value"],
+                    "threshold": res["threshold"],
+                    "passed": res["passed"],
+                    "notes": res["notes"],
+                },
+            )
 
     log.info("=" * 60)
     if failures == 0:
         log.info("All quality checks PASSED.")
     else:
         log.error(f"{failures} quality check(s) FAILED.")
-        
+
     return failures
 
 
@@ -247,9 +274,9 @@ def main():
     t0 = time.perf_counter()
     failures = run_checks()
     elapsed = time.perf_counter() - t0
-    
+
     log.info(f"Quality checks completed in {elapsed:.2f}s")
-    
+
     if failures > 0:
         sys.exit(1)
 

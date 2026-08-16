@@ -22,7 +22,9 @@ from datetime import date
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the predictive maintenance ETL pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run the predictive maintenance ETL pipeline."
+    )
     parser.add_argument(
         "--batch-date",
         type=date.fromisoformat,
@@ -40,7 +42,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     print(f"[pipeline] batch_date={args.batch_date}  dry_run={args.dry_run}")
-    print("[pipeline] TODO: implement ingest -> transform -> load -> quality steps (Phase 2)")
+    print(
+        "[pipeline] TODO: implement ingest -> transform -> load -> quality steps (Phase 2)"
+    )
     sys.exit(0)
 
 
