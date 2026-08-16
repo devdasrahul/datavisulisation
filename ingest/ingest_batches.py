@@ -43,8 +43,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
 DEFAULT_SOURCE_DIR = PROJECT_ROOT / "data" / "source"
-DEFAULT_DEST_DIR   = PROJECT_ROOT / "data" / "raw"
-MANIFEST_PATH_TPL  = "{dest_dir}/.manifest.json"
+DEFAULT_DEST_DIR = PROJECT_ROOT / "data" / "raw"
+MANIFEST_PATH_TPL = "{dest_dir}/.manifest.json"
 DEFAULT_BATCH_SIZE = 20
 
 # All four C-MAPSS subsets
@@ -53,23 +53,42 @@ ALL_DATASETS = ["FD001", "FD002", "FD003", "FD004"]
 # Canonical column names for the 26 usable columns in each NASA train file.
 # Cols 27-28 (if present) are trailing zeros from NASA's export and are dropped.
 RAW_COLUMNS: list[str] = [
-    "unit_id", "cycle",
-    "op_setting_1", "op_setting_2", "op_setting_3",
-    "sensor_1",  "sensor_2",  "sensor_3",  "sensor_4",  "sensor_5",
-    "sensor_6",  "sensor_7",  "sensor_8",  "sensor_9",  "sensor_10",
-    "sensor_11", "sensor_12", "sensor_13", "sensor_14", "sensor_15",
-    "sensor_16", "sensor_17", "sensor_18", "sensor_19", "sensor_20",
+    "unit_id",
+    "cycle",
+    "op_setting_1",
+    "op_setting_2",
+    "op_setting_3",
+    "sensor_1",
+    "sensor_2",
+    "sensor_3",
+    "sensor_4",
+    "sensor_5",
+    "sensor_6",
+    "sensor_7",
+    "sensor_8",
+    "sensor_9",
+    "sensor_10",
+    "sensor_11",
+    "sensor_12",
+    "sensor_13",
+    "sensor_14",
+    "sensor_15",
+    "sensor_16",
+    "sensor_17",
+    "sensor_18",
+    "sensor_19",
+    "sensor_20",
     "sensor_21",
 ]
 
 # Polars schema for strict type assignment at read time (keeps bronze data typed
 # correctly without any value transformation — dtypes match the raw signal types)
 RAW_SCHEMA: dict[str, pl.DataType] = {
-    "unit_id":       pl.Int32,
-    "cycle":         pl.Int32,
-    "op_setting_1":  pl.Float64,
-    "op_setting_2":  pl.Float64,
-    "op_setting_3":  pl.Float64,
+    "unit_id": pl.Int32,
+    "cycle": pl.Int32,
+    "op_setting_1": pl.Float64,
+    "op_setting_2": pl.Float64,
+    "op_setting_3": pl.Float64,
     **{f"sensor_{i}": pl.Float64 for i in range(1, 22)},
 }
 
@@ -77,6 +96,7 @@ RAW_SCHEMA: dict[str, pl.DataType] = {
 # ---------------------------------------------------------------------------
 # Manifest helpers
 # ---------------------------------------------------------------------------
+
 
 def _manifest_path(dest_dir: Path) -> Path:
     return dest_dir / ".manifest.json"
@@ -99,7 +119,7 @@ def save_manifest(dest_dir: Path, manifest: dict) -> None:
     """Persist the manifest atomically (write to .tmp then rename)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = _manifest_path(dest_dir)
-    tmp  = path.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, default=str)
     tmp.replace(path)
@@ -114,6 +134,7 @@ def make_batch_key(dataset: str, unit_id: int, batch_idx: int) -> str:
 # File discovery
 # ---------------------------------------------------------------------------
 
+
 def find_source_files(source_dir: Path, datasets: list[str]) -> list[tuple[str, Path]]:
     """
     Return a list of (dataset_name, file_path) tuples for each requested dataset.
@@ -125,7 +146,9 @@ def find_source_files(source_dir: Path, datasets: list[str]) -> list[tuple[str, 
         if candidate.exists():
             found.append((ds, candidate))
         else:
-            log.warning("Source file not found (run download_data.py first): %s", candidate)
+            log.warning(
+                "Source file not found (run download_data.py first): %s", candidate
+            )
     if not found:
         log.error("No source files found in %s for datasets %s", source_dir, datasets)
         sys.exit(1)
@@ -136,11 +159,12 @@ def find_source_files(source_dir: Path, datasets: list[str]) -> list[tuple[str, 
 # Read raw file
 # ---------------------------------------------------------------------------
 
+
 def read_raw_file(path: Path) -> pl.DataFrame:
     """
     Pulls a NASA C-MAPSS train file into Polars.
-    These files don't have headers and the column counts sometimes vary (NASA leaves 
-    trailing spaces that get parsed as empty columns). We trim the junk, map the 26 real 
+    These files don't have headers and the column counts sometimes vary (NASA leaves
+    trailing spaces that get parsed as empty columns). We trim the junk, map the 26 real
     sensor columns, and strictly type them here at the very edge of the pipeline.
     """
     log.info("Reading source file: %s", path.name)
@@ -151,7 +175,7 @@ def read_raw_file(path: Path) -> pl.DataFrame:
         separator=" ",
         has_header=False,
         infer_schema_length=50,
-        truncate_ragged_lines=True,   # some NASA files have trailing whitespace
+        truncate_ragged_lines=True,  # some NASA files have trailing whitespace
         ignore_errors=True,
     )
 
@@ -164,7 +188,9 @@ def read_raw_file(path: Path) -> pl.DataFrame:
     if raw.width != 26:
         log.error(
             "  Unexpected column count %d in %s (expected 26). "
-            "Check the source file format.", raw.width, path.name
+            "Check the source file format.",
+            raw.width,
+            path.name,
         )
         sys.exit(1)
 
@@ -183,6 +209,7 @@ def read_raw_file(path: Path) -> pl.DataFrame:
 # Batch splitting
 # ---------------------------------------------------------------------------
 
+
 def split_into_batches(
     unit_df: pl.DataFrame, batch_size: int
 ) -> Iterator[tuple[int, pl.DataFrame]]:
@@ -196,19 +223,20 @@ def split_into_batches(
     """
     # Sort by cycle to guarantee chronological order
     ordered = unit_df.sort("cycle")
-    total   = len(ordered)
+    total = len(ordered)
     batch_idx = 0
     offset = 0
     while offset < total:
         chunk = ordered.slice(offset, batch_size)
         yield batch_idx, chunk
-        offset    += batch_size
+        offset += batch_size
         batch_idx += 1
 
 
 # ---------------------------------------------------------------------------
 # Parquet writer
 # ---------------------------------------------------------------------------
+
 
 def write_parquet(
     batch_df: pl.DataFrame,
@@ -238,11 +266,13 @@ def write_parquet(
     out_path = out_dir / f"batch={ts_str}_{batch_idx:06d}.parquet"
 
     # Append lineage metadata as literal string columns
-    enriched = batch_df.with_columns([
-        pl.lit(ingested_at.isoformat()).alias("_ingested_at"),
-        pl.lit(source_file).alias("_source_file"),
-        pl.lit(batch_idx).cast(pl.Int32).alias("_batch_idx"),
-    ])
+    enriched = batch_df.with_columns(
+        [
+            pl.lit(ingested_at.isoformat()).alias("_ingested_at"),
+            pl.lit(source_file).alias("_source_file"),
+            pl.lit(batch_idx).cast(pl.Int32).alias("_batch_idx"),
+        ]
+    )
 
     if dry_run:
         try:
@@ -251,7 +281,8 @@ def write_parquet(
             display_path = out_path
         log.debug(
             "  [DRY-RUN] Would write %d rows -> %s",
-            len(enriched), display_path,
+            len(enriched),
+            display_path,
         )
         return out_path
 
@@ -263,6 +294,7 @@ def write_parquet(
 # ---------------------------------------------------------------------------
 # Optional Postgres dim_batch registration
 # ---------------------------------------------------------------------------
+
 
 def _try_db_register(
     batch_date: date,
@@ -282,6 +314,7 @@ def _try_db_register(
 
     try:
         import psycopg2
+
         conn = psycopg2.connect(db_url, connect_timeout=8)
         conn.autocommit = False
         cur = conn.cursor()
@@ -298,7 +331,7 @@ def _try_db_register(
         cur.close()
         conn.close()
         return batch_id
-    except Exception as exc:            # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("dim_batch registration skipped (DB error): %s", exc)
         return None
 
@@ -306,6 +339,7 @@ def _try_db_register(
 # ---------------------------------------------------------------------------
 # Core orchestration
 # ---------------------------------------------------------------------------
+
 
 def run_ingest(
     datasets: list[str],
@@ -326,11 +360,11 @@ def run_ingest(
     # ── Counters for the end-of-run summary ──────────────────────────────────
     stats = {
         "files_processed": 0,
-        "batches_written":  0,
-        "batches_skipped":  0,
-        "rows_written":     0,
-        "rows_skipped":     0,
-        "errors":           0,
+        "batches_written": 0,
+        "batches_skipped": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "errors": 0,
     }
 
     ingested_at = datetime.now(tz=timezone.utc)
@@ -343,7 +377,7 @@ def run_ingest(
 
         try:
             full_df = read_raw_file(file_path)
-        except Exception as exc:            # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.error("Failed to read %s: %s", file_path.name, exc)
             stats["errors"] += 1
             continue
@@ -358,7 +392,10 @@ def run_ingest(
 
             log.info(
                 "  Unit %3d | %4d cycles | %d batch(es) of %d",
-                unit_id, n_cycles, n_batches, batch_size,
+                unit_id,
+                n_cycles,
+                n_batches,
+                batch_size,
             )
 
             for batch_idx, batch_df in split_into_batches(unit_df, batch_size):
@@ -369,7 +406,9 @@ def run_ingest(
                     existing = manifest["batches"][key]
                     log.debug(
                         "    [SKIP] %s  (written %s, %d rows)",
-                        key, existing.get("written_at", "?"), existing.get("row_count", 0),
+                        key,
+                        existing.get("written_at", "?"),
+                        existing.get("row_count", 0),
                     )
                     stats["batches_skipped"] += 1
                     stats["rows_skipped"] += existing.get("row_count", 0)
@@ -387,7 +426,7 @@ def run_ingest(
                         source_file=file_path.name,
                         dry_run=dry_run,
                     )
-                except Exception as exc:    # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
                     log.error("    [ERROR] writing %s: %s", key, exc)
                     stats["errors"] += 1
                     continue
@@ -409,29 +448,31 @@ def run_ingest(
                 cycle_max = int(batch_df["cycle"].max())
 
                 manifest["batches"][key] = {
-                    "dataset":      dataset,
-                    "unit_id":      unit_id,
-                    "batch_idx":    batch_idx,
-                    "source_file":  file_path.name,
+                    "dataset": dataset,
+                    "unit_id": unit_id,
+                    "batch_idx": batch_idx,
+                    "source_file": file_path.name,
                     "parquet_path": str(out_path.relative_to(PROJECT_ROOT)),
-                    "written_at":   ingested_at.isoformat(),
-                    "batch_date":   str(batch_date),
-                    "row_count":    row_count,
-                    "cycle_min":    cycle_min,
-                    "cycle_max":    cycle_max,
-                    "db_batch_id":  db_batch_id,
-                    "dry_run":      dry_run,
+                    "written_at": ingested_at.isoformat(),
+                    "batch_date": str(batch_date),
+                    "row_count": row_count,
+                    "cycle_min": cycle_min,
+                    "cycle_max": cycle_max,
+                    "db_batch_id": db_batch_id,
+                    "dry_run": dry_run,
                 }
 
                 log.info(
                     "    [OK ] %-40s  %3d rows  cycles %d–%d%s",
                     out_path.relative_to(dest_dir),
-                    row_count, cycle_min, cycle_max,
+                    row_count,
+                    cycle_min,
+                    cycle_max,
                     "  [DRY-RUN]" if dry_run else "",
                 )
 
                 stats["batches_written"] += 1
-                stats["rows_written"]    += row_count
+                stats["rows_written"] += row_count
 
         # ── Persist manifest after each dataset (crash safety) ────────────
         if not dry_run:
@@ -449,6 +490,7 @@ def run_ingest(
 # ---------------------------------------------------------------------------
 # Summary printer
 # ---------------------------------------------------------------------------
+
 
 def _print_summary(
     stats: dict,
@@ -469,8 +511,10 @@ def _print_summary(
     print(f"  Source files read : {stats['files_processed']}")
     print(f"  Batches written   : {stats['batches_written']}")
     print(f"  Rows written      : {stats['rows_written']:,}")
-    print(f"  Batches skipped   : {stats['batches_skipped']}  "
-          f"(already in manifest — use --force to overwrite)")
+    print(
+        f"  Batches skipped   : {stats['batches_skipped']}  "
+        f"(already in manifest — use --force to overwrite)"
+    )
     print(f"  Rows skipped      : {stats['rows_skipped']:,}")
     print(f"  Errors            : {stats['errors']}")
     print("=" * 56)
@@ -480,6 +524,7 @@ def _print_summary(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -544,8 +589,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     # Force UTF-8 stdout (prevents cp1252 UnicodeEncodeError on Windows)
     import io as _io
+
     if hasattr(sys.stdout, "buffer"):
-        sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stdout = _io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
 
     args = parse_args()
 
@@ -554,8 +602,7 @@ def main() -> None:
 
     # If no --dataset given, default to all datasets present in source_dir
     datasets = args.dataset or [
-        ds for ds in ALL_DATASETS
-        if (args.source_dir / f"train_{ds}.txt").exists()
+        ds for ds in ALL_DATASETS if (args.source_dir / f"train_{ds}.txt").exists()
     ]
     if not datasets:
         log.error(
@@ -564,8 +611,12 @@ def main() -> None:
         )
         sys.exit(1)
 
-    log.info("Starting ingest  |  datasets=%s  batch_size=%d  dry_run=%s",
-             datasets, args.batch_size, args.dry_run)
+    log.info(
+        "Starting ingest  |  datasets=%s  batch_size=%d  dry_run=%s",
+        datasets,
+        args.batch_size,
+        args.dry_run,
+    )
 
     t0 = time.perf_counter()
     run_ingest(

@@ -50,9 +50,9 @@ log = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
-DEFAULT_RAW_DIR   = PROJECT_ROOT / "data" / "raw"
+DEFAULT_RAW_DIR = PROJECT_ROOT / "data" / "raw"
 DEFAULT_CLEAN_DIR = PROJECT_ROOT / "data" / "cleaned"
-DEFAULT_AGG_DIR   = PROJECT_ROOT / "data" / "aggregated"
+DEFAULT_AGG_DIR = PROJECT_ROOT / "data" / "aggregated"
 
 ALL_DATASETS = ["FD001", "FD002", "FD003", "FD004"]
 
@@ -64,23 +64,43 @@ def _rel(path: Path) -> Path:
     except ValueError:
         return path
 
+
 # Bronze metadata columns added by ingest_batches.py — dropped before Silver write
 BRONZE_META_COLS = {"_ingested_at", "_source_file", "_batch_idx"}
 
 # The 26 canonical sensor-data columns (matches ingest_batches.RAW_COLUMNS)
 RAW_COLUMNS: list[str] = [
-    "unit_id", "cycle",
-    "op_setting_1", "op_setting_2", "op_setting_3",
-    "sensor_1",  "sensor_2",  "sensor_3",  "sensor_4",  "sensor_5",
-    "sensor_6",  "sensor_7",  "sensor_8",  "sensor_9",  "sensor_10",
-    "sensor_11", "sensor_12", "sensor_13", "sensor_14", "sensor_15",
-    "sensor_16", "sensor_17", "sensor_18", "sensor_19", "sensor_20",
+    "unit_id",
+    "cycle",
+    "op_setting_1",
+    "op_setting_2",
+    "op_setting_3",
+    "sensor_1",
+    "sensor_2",
+    "sensor_3",
+    "sensor_4",
+    "sensor_5",
+    "sensor_6",
+    "sensor_7",
+    "sensor_8",
+    "sensor_9",
+    "sensor_10",
+    "sensor_11",
+    "sensor_12",
+    "sensor_13",
+    "sensor_14",
+    "sensor_15",
+    "sensor_16",
+    "sensor_17",
+    "sensor_18",
+    "sensor_19",
+    "sensor_20",
     "sensor_21",
 ]
 
-SENSOR_COLS:  list[str] = [c for c in RAW_COLUMNS if c.startswith("sensor_")]
+SENSOR_COLS: list[str] = [c for c in RAW_COLUMNS if c.startswith("sensor_")]
 SETTING_COLS: list[str] = ["op_setting_1", "op_setting_2", "op_setting_3"]
-ID_COLS:      list[str] = ["unit_id", "cycle"]
+ID_COLS: list[str] = ["unit_id", "cycle"]
 
 # Expected sensor bounds — mirrors the seed data in sql/schema.sql (dim_sensor).
 # Used for anomaly flagging in the Silver clean step.
@@ -117,38 +137,42 @@ ROLLING_WINDOW = 7
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BatchReport:
     """Collects statistics for one Bronze -> Silver transform."""
-    bronze_path:     str = ""
-    silver_path:     str = ""
-    rows_in:         int = 0
-    rows_out:        int = 0
+
+    bronze_path: str = ""
+    silver_path: str = ""
+    rows_in: int = 0
+    rows_out: int = 0
     duplicates_dropped: int = 0
-    null_counts:     dict[str, int] = field(default_factory=dict)
-    anomaly_counts:  dict[str, int] = field(default_factory=dict)
-    skipped:         bool = False
-    error:           str | None = None
+    null_counts: dict[str, int] = field(default_factory=dict)
+    anomaly_counts: dict[str, int] = field(default_factory=dict)
+    skipped: bool = False
+    error: str | None = None
 
 
 @dataclass
 class RunStats:
     """Aggregate statistics across all batches in one run."""
+
     batches_transformed: int = 0
-    batches_skipped:     int = 0
-    batches_errored:     int = 0
-    rows_in_total:       int = 0
-    rows_out_silver:     int = 0
-    rows_out_gold:       int = 0
-    units_gold_updated:  int = 0
-    total_duplicates:    int = 0
-    total_nulls:         int = 0
-    total_anomalies:     int = 0
+    batches_skipped: int = 0
+    batches_errored: int = 0
+    rows_in_total: int = 0
+    rows_out_silver: int = 0
+    rows_out_gold: int = 0
+    units_gold_updated: int = 0
+    total_duplicates: int = 0
+    total_nulls: int = 0
+    total_anomalies: int = 0
 
 
 # ---------------------------------------------------------------------------
 # Manifest helpers (parallel structure to ingest manifest)
 # ---------------------------------------------------------------------------
+
 
 def _manifest_path(clean_dir: Path) -> Path:
     return clean_dir / ".transform_manifest.json"
@@ -167,8 +191,8 @@ def load_manifest(clean_dir: Path) -> dict:
 
 def save_manifest(clean_dir: Path, manifest: dict) -> None:
     clean_dir.mkdir(parents=True, exist_ok=True)
-    path    = _manifest_path(clean_dir)
-    tmp     = path.with_suffix(".json.tmp")
+    path = _manifest_path(clean_dir)
+    tmp = path.with_suffix(".json.tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, default=str)
     tmp.replace(path)
@@ -178,7 +202,10 @@ def save_manifest(clean_dir: Path, manifest: dict) -> None:
 # Bronze file discovery
 # ---------------------------------------------------------------------------
 
-def find_bronze_files(raw_dir: Path, datasets: list[str]) -> Generator[tuple[str, int, Path], None, None]:
+
+def find_bronze_files(
+    raw_dir: Path, datasets: list[str]
+) -> Generator[tuple[str, int, Path], None, None]:
     """
     Yield (dataset, unit_id, parquet_path) for every Bronze Parquet file
     found under raw_dir, filtered to the requested datasets.
@@ -204,6 +231,7 @@ def find_bronze_files(raw_dir: Path, datasets: list[str]) -> Generator[tuple[str
 # STEP 1: Bronze → Silver (cleaning)
 # ---------------------------------------------------------------------------
 
+
 def clean_batch(
     bronze_path: Path,
     clean_dir: Path,
@@ -213,7 +241,7 @@ def clean_batch(
 ) -> BatchReport:
     """
     Cleans a single Bronze file and saves it to Silver.
-    Strips out the pipeline metadata cols, enforces data types, deduplicates, 
+    Strips out the pipeline metadata cols, enforces data types, deduplicates,
     and checks sensor bounds to flag anomalies.
     """
     report = BatchReport(bronze_path=str(_rel(bronze_path)))
@@ -236,7 +264,9 @@ def clean_batch(
     # ── 2. Ensure all 26 RAW_COLUMNS present ────────────────────────────────
     for col in RAW_COLUMNS:
         if col not in df.columns:
-            log.warning("  Missing column %s in %s — filling with null", col, bronze_path.name)
+            log.warning(
+                "  Missing column %s in %s — filling with null", col, bronze_path.name
+            )
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # Reorder to canonical order
@@ -260,7 +290,8 @@ def clean_batch(
     if report.duplicates_dropped:
         log.warning(
             "  Dropped %d duplicate (unit_id, cycle) rows from %s",
-            report.duplicates_dropped, bronze_path.name,
+            report.duplicates_dropped,
+            bronze_path.name,
         )
 
     # ── 5. Count nulls per column ────────────────────────────────────────────
@@ -336,7 +367,8 @@ def clean_batch(
     else:
         log.info(
             "  [DRY-RUN] Silver would write %d rows -> %s",
-            len(df), _rel(silver_path),
+            len(df),
+            _rel(silver_path),
         )
 
     return report
@@ -345,6 +377,7 @@ def clean_batch(
 # ---------------------------------------------------------------------------
 # STEP 2: Silver → Gold (feature engineering)
 # ---------------------------------------------------------------------------
+
 
 def compute_gold(
     clean_dir: Path,
@@ -355,10 +388,10 @@ def compute_gold(
     transformed_at: datetime,
 ) -> int:
     """
-    Grabs all the Silver files for a specific engine, melts them down, 
-    and calculates the rolling averages and rate of change. 
-    
-    This completely overwrites the Gold file for the engine each time it runs, 
+    Grabs all the Silver files for a specific engine, melts them down,
+    and calculates the rolling averages and rate of change.
+
+    This completely overwrites the Gold file for the engine each time it runs,
     because we need the full history to calculate the rolling windows correctly.
     """
     silver_dir = clean_dir / f"dataset={dataset}" / f"unit={unit_id}"
@@ -382,7 +415,9 @@ def compute_gold(
     silver_df = pl.concat(frames)
 
     # Drop duplicates that may span batch boundaries (same unit_id + cycle)
-    silver_df = silver_df.unique(subset=["unit_id", "cycle"], keep="first", maintain_order=True)
+    silver_df = silver_df.unique(
+        subset=["unit_id", "cycle"], keep="first", maintain_order=True
+    )
 
     # ── Melt (unpivot) wide -> long: one row per (unit_id, cycle, sensor) ────
     # Keep is_anomaly at the row level — will be True if ANY sensor on that cycle
@@ -401,9 +436,9 @@ def compute_gold(
     # Extract integer sensor_id from "sensor_N" -> N
     long_df = long_df.with_columns(
         pl.col("sensor_name")
-          .str.extract(r"sensor_(\d+)", 1)
-          .cast(pl.Int32)
-          .alias("sensor_id")
+        .str.extract(r"sensor_(\d+)", 1)
+        .cast(pl.Int32)
+        .alias("sensor_id")
     )
 
     # ── Sort for window operations ────────────────────────────────────────────
@@ -412,22 +447,23 @@ def compute_gold(
     long_df = long_df.sort(["unit_id", "sensor_id", "cycle"])
 
     # ── Compute engineered features ───────────────────────────────────────────
-    long_df = long_df.with_columns([
-        # 7-cycle rolling mean per unit+sensor.
-        # min_periods=1 means partial windows at the start of each unit's life
-        # still produce a value (avg of available readings) rather than null.
-        pl.col("reading_value")
-          .rolling_mean(window_size=ROLLING_WINDOW, min_periods=1)
-          .over(["unit_id", "sensor_id"])
-          .alias("rolling_avg_7"),
-
-        # Cycle-over-cycle difference (rate of change) per unit+sensor.
-        # First cycle for each unit+sensor will be null — expected behaviour.
-        pl.col("reading_value")
-          .diff(n=1)
-          .over(["unit_id", "sensor_id"])
-          .alias("rate_of_change"),
-    ])
+    long_df = long_df.with_columns(
+        [
+            # 7-cycle rolling mean per unit+sensor.
+            # min_periods=1 means partial windows at the start of each unit's life
+            # still produce a value (avg of available readings) rather than null.
+            pl.col("reading_value")
+            .rolling_mean(window_size=ROLLING_WINDOW, min_periods=1)
+            .over(["unit_id", "sensor_id"])
+            .alias("rolling_avg_7"),
+            # Cycle-over-cycle difference (rate of change) per unit+sensor.
+            # First cycle for each unit+sensor will be null — expected behaviour.
+            pl.col("reading_value")
+            .diff(n=1)
+            .over(["unit_id", "sensor_id"])
+            .alias("rate_of_change"),
+        ]
+    )
 
     # Add transform lineage column
     long_df = long_df.with_columns(
@@ -436,8 +472,15 @@ def compute_gold(
 
     # ── Reorder columns to match fact table grain ─────────────────────────────
     col_order = (
-        ["unit_id", "cycle", "sensor_id", "sensor_name", "reading_value",
-         "rolling_avg_7", "rate_of_change"]
+        [
+            "unit_id",
+            "cycle",
+            "sensor_id",
+            "sensor_name",
+            "reading_value",
+            "rolling_avg_7",
+            "rate_of_change",
+        ]
         + [c for c in available_keep if c not in ("unit_id", "cycle")]
         + ["_transformed_at"]
     )
@@ -447,8 +490,8 @@ def compute_gold(
     rows_out = len(long_df)
 
     # ── Write Gold Parquet ────────────────────────────────────────────────────
-    ts_str    = transformed_at.strftime("%Y%m%dT%H%M%S")
-    gold_dir  = agg_dir / f"dataset={dataset}" / f"unit={unit_id}"
+    ts_str = transformed_at.strftime("%Y%m%dT%H%M%S")
+    gold_dir = agg_dir / f"dataset={dataset}" / f"unit={unit_id}"
     gold_path = gold_dir / f"gold_{ts_str}.parquet"
 
     if not dry_run:
@@ -469,7 +512,8 @@ def compute_gold(
     else:
         log.info(
             "  [DRY-RUN] Gold would write %d rows -> %s",
-            rows_out, _rel(gold_path),
+            rows_out,
+            _rel(gold_path),
         )
 
     return rows_out
@@ -478,6 +522,7 @@ def compute_gold(
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
 
 def run_transform(
     raw_dir: Path,
@@ -488,15 +533,15 @@ def run_transform(
     dry_run: bool,
 ) -> RunStats:
     """
-    The main driver. Finds new Bronze files, cleans them, and then recomputes 
+    The main driver. Finds new Bronze files, cleans them, and then recomputes
     Gold for any engines that got new data.
     """
     clean_dir.mkdir(parents=True, exist_ok=True)
     agg_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest         = load_manifest(clean_dir)
-    transformed_at   = datetime.now(tz=timezone.utc)
-    stats            = RunStats()
+    manifest = load_manifest(clean_dir)
+    transformed_at = datetime.now(tz=timezone.utc)
+    stats = RunStats()
     reports: list[BatchReport] = []
 
     # Track which (dataset, unit_id) pairs got new Silver this run
@@ -513,10 +558,14 @@ def run_transform(
         if manifest_key in manifest["batches"] and not force:
             log.debug("  [SKIP] Already transformed: %s", bronze_path.name)
             stats.batches_skipped += 1
-            stats.rows_out_silver += manifest["batches"][manifest_key].get("rows_out_silver", 0)
+            stats.rows_out_silver += manifest["batches"][manifest_key].get(
+                "rows_out_silver", 0
+            )
             continue
 
-        log.info("Processing: dataset=%s unit=%d file=%s", dataset, unit_id, bronze_path.name)
+        log.info(
+            "Processing: dataset=%s unit=%d file=%s", dataset, unit_id, bronze_path.name
+        )
         report = clean_batch(
             bronze_path=bronze_path,
             clean_dir=clean_dir,
@@ -533,24 +582,24 @@ def run_transform(
         # Update manifest
         if not dry_run:
             manifest["batches"][manifest_key] = {
-                "dataset":           dataset,
-                "unit_id":           unit_id,
-                "bronze_path":       manifest_key,
-                "silver_path":       report.silver_path,
-                "transformed_at":    transformed_at.isoformat(),
-                "rows_in":           report.rows_in,
-                "rows_out_silver":   report.rows_out,
+                "dataset": dataset,
+                "unit_id": unit_id,
+                "bronze_path": manifest_key,
+                "silver_path": report.silver_path,
+                "transformed_at": transformed_at.isoformat(),
+                "rows_in": report.rows_in,
+                "rows_out_silver": report.rows_out,
                 "duplicates_dropped": report.duplicates_dropped,
-                "null_counts":       report.null_counts,
-                "anomaly_counts":    report.anomaly_counts,
+                "null_counts": report.null_counts,
+                "anomaly_counts": report.anomaly_counts,
             }
 
         stats.batches_transformed += 1
-        stats.rows_in_total       += report.rows_in
-        stats.rows_out_silver     += report.rows_out
-        stats.total_duplicates    += report.duplicates_dropped
-        stats.total_nulls         += sum(report.null_counts.values())
-        stats.total_anomalies     += sum(report.anomaly_counts.values())
+        stats.rows_in_total += report.rows_in
+        stats.rows_out_silver += report.rows_out
+        stats.total_duplicates += report.duplicates_dropped
+        stats.total_nulls += sum(report.null_counts.values())
+        stats.total_anomalies += sum(report.anomaly_counts.values())
 
         units_needing_gold.add((dataset, unit_id))
 
@@ -576,10 +625,15 @@ def run_transform(
                     dry_run=dry_run,
                     transformed_at=transformed_at,
                 )
-                stats.rows_out_gold      += gold_rows
+                stats.rows_out_gold += gold_rows
                 stats.units_gold_updated += 1
             except Exception as exc:
-                log.error("  [ERROR] Gold transform failed for %s unit %d: %s", dataset, unit_id, exc)
+                log.error(
+                    "  [ERROR] Gold transform failed for %s unit %d: %s",
+                    dataset,
+                    unit_id,
+                    exc,
+                )
                 stats.batches_errored += 1
     else:
         log.info("No new Silver batches — Gold layer is up to date.")
@@ -590,6 +644,7 @@ def run_transform(
 # ---------------------------------------------------------------------------
 # Summary printer
 # ---------------------------------------------------------------------------
+
 
 def print_summary(stats: RunStats, reports: list[BatchReport] | None = None) -> None:
     prefix = "[DRY-RUN] " if False else ""  # dry_run flag is in stats via callers
@@ -617,6 +672,7 @@ def print_summary(stats: RunStats, reports: list[BatchReport] | None = None) -> 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -672,8 +728,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     import io as _io
+
     if hasattr(sys.stdout, "buffer"):
-        sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stdout = _io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
 
     args = parse_args()
     if args.verbose:
@@ -683,10 +742,12 @@ def main() -> None:
 
     log.info(
         "Starting transform  |  datasets=%s  force=%s  dry_run=%s",
-        datasets, args.force, args.dry_run,
+        datasets,
+        args.force,
+        args.dry_run,
     )
 
-    t0    = time.perf_counter()
+    t0 = time.perf_counter()
     stats = run_transform(
         raw_dir=args.raw_dir,
         clean_dir=args.clean_dir,
