@@ -7,6 +7,8 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,6 +23,7 @@ jobs:
         run: pip install psycopg2-binary python-dotenv
 
       - name: Ping database
+        if: ${{ env.DATABASE_URL != '' }}
         run: |
           python - <<'EOF'
           import os, psycopg2
@@ -30,5 +33,7 @@ jobs:
           conn.close()
           print("DB keepalive ping successful.")
           EOF
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Skip keepalive when DATABASE_URL is not configured
+        if: ${{ env.DATABASE_URL == '' }}
+        run: echo "DATABASE_URL secret is not configured; skipping DB keepalive ping."
