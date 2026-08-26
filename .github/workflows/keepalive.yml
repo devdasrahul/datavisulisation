@@ -24,7 +24,11 @@ jobs:
         run: |
           python - <<'EOF'
           import os, psycopg2
-          conn = psycopg2.connect(os.environ["DATABASE_URL"])
+          db_url = os.environ.get("DATABASE_URL", "").strip()
+          if not db_url:
+              print("DATABASE_URL secret is not configured; skipping keepalive ping.")
+              raise SystemExit(0)
+          conn = psycopg2.connect(db_url)
           cur = conn.cursor()
           cur.execute("SELECT 1")
           conn.close()
